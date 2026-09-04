@@ -60,10 +60,17 @@ async function getAppointments(query) {
     });
 }
 
+async function deleteAppointment(id) {
+    return prisma.appointment.delete({
+        where: { id },
+    });
+}   
+
 module.exports = {
     createAppointment,
     getDoctorAppointmentsByDate,
     updateAppointment,
     getAppointmentById,
-    getAppointments
+    getAppointments,
+    deleteAppointment
 }
