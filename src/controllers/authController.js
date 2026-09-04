@@ -1,10 +1,12 @@
 require('dotenv').config();
-const Joi = require('joi');
 const bcrypt = require('bcrypt');
 var jwt = require('jsonwebtoken');
-const { sendMail }  = require('../services/mailerService');
+const { sendMail } = require('../services/mailerService');
 const crypto = require('crypto');
 const userService = require('../services/userService');
+const doctorService = require('../services/doctorService');
+const patientService = require('../services/patientService');
+const { prisma } = require("../db/prisma");
 
 exports.signup = async (req, res, next) => {
     const payload = req.body;
@@ -13,22 +15,53 @@ exports.signup = async (req, res, next) => {
 
         const isDuplicate = await userService.checkUserExist(payload.email);
 
-        if(isDuplicate) {
+        if (isDuplicate) {
             return res.status(400).json({ message: "User with this email already exists" });
         }
 
         payload.password = await bcrypt.hash(payload.password, 10);
-        const newUser = await userService.addUser(payload);
 
-        if(!newUser) {
-            return res.status(400).json({ message: "User creation failed" });
-        }
+        const { user, doctor, patient } = await prisma.$transaction(async (tx) => {
 
-        sendMail(newUser.email, "Signup Success", "Hello world?", "<b>Hello world?</b>");
+            const newUser = await userService.addUser(tx, payload);
+            let doctor = null;
+            let patient = null;
 
-        res.status(201).json(newUser);
+            if (!newUser) {
+                throw new Error("User creation failed");
+            }
+
+            if (newUser.role === 'DOCTOR') {
+                doctor = await doctorService.addDoctor(tx, {
+                    userId: newUser.id,
+                    specialization: payload.specialization || '',
+                });
+
+                if (!doctor) {
+                    throw new Error("Doctor creation failed");
+                }
+            } else {
+                patient = await patientService.addPatient(tx, {
+                    userId: newUser.id,
+                });
+
+                if (!patient) {
+                    throw new Error("Patient creation failed");
+                }
+            }
+
+            return {
+                user: newUser,
+                doctor,
+                patient,
+            };
+        })
+
+        sendMail(user.email, "Signup Success", "Hello world?", "<b>Hello world?</b>");
+
+        res.status(201).json(user);
     } catch (error) {
-       next(error);
+        next(error);
     }
 
 };
@@ -36,36 +69,43 @@ exports.signup = async (req, res, next) => {
 exports.login = async (req, res, next) => {
     const payload = req.body;
 
-    const user = await userService.getUserByEmail(payload.email);
+    try {
 
-    if(!user) {
-        return res.status(404).json({ message: "User not found" });
+        const user = await userService.getUserByEmail(payload.email);
+
+        if (!user) {
+            return res.status(404).json({ message: "Invalid email or password" });
+        }
+
+        const isPasswordValid = await bcrypt.compare(payload.password, user.password,);
+
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        const refreshToken = generateRefreshToken();
+        const tokenHash = generateRefreshTokenHash(refreshToken);
+        await updateUserRefreshTokenHash(user, tokenHash);
+        var token = generateUserAccessToken(user);
+
+        res.status(200).json({ token, refreshToken: tokenHash });
+
+    } catch (error) {
+        next(error);
     }
 
-    const isPasswordValid = await bcrypt.compare(payload.password, user.password,);
-    
-    if(!isPasswordValid) {
-        return res.status(401).json({ message: "Invalid email or password" });
-    }
-
-    const refreshToken = generateRefreshToken();
-    const tokenHash = generateRefreshTokenHash(refreshToken);
-    await updateUserRefreshTokenHash(user, tokenHash);
-    var token = generateUserAccessToken(user);
-    
-    res.status(200).json({ token, refreshToken: tokenHash });
 };
 
 exports.refreshToken = async (req, res, next) => {
     const refreshToken = req.body.refreshToken || req.headers['x-refresh-token'];
 
-    if(!refreshToken) {
+    if (!refreshToken) {
         return res.status(400).json({ message: "Refresh token is required" });
     }
 
     const user = await userService.getUserByRefreshToken(refreshToken);
 
-    if(!user) {
+    if (!user) {
         return res.status(401).json({
             message: "Invalid refresh token",
         });
@@ -96,7 +136,7 @@ exports.forgetPassword = async (req, res, next) => {
 
     const user = await userService.getUserByEmail(email);
 
-    if(!user) {
+    if (!user) {
         res.status(404).json({ message: "User not found" });
     }
 
@@ -113,11 +153,11 @@ exports.resetPassword = async (req, res, next) => {
 
     const user = await userService.getUserByEmail(email);
 
-    if(!user) {
+    if (!user) {
         return res.status(404).json({ message: "User not found" });
     }
 
-    if(user.resetPasswordCode !== resetPasswordCode || user.resetPasswordCodeExpiry < new Date()) {
+    if (user.resetPasswordCode !== resetPasswordCode || user.resetPasswordCodeExpiry < new Date()) {
         return res.status(400).json({ message: "Invalid or expired reset password code" });
     }
 
@@ -133,7 +173,7 @@ exports.resetPassword = async (req, res, next) => {
 exports.logout = async (req, res, next) => {
     const user = await userService.getUserByEmail(req.user.email);
 
-    if(!user) {
+    if (!user) {
         return res.status(404).json({ message: "User not found" });
     }
 
@@ -147,11 +187,11 @@ exports.resetPassword = async (req, res, next) => {
 
     const user = await userService.getUserByEmail(email);
 
-    if(!user) {
+    if (!user) {
         return res.status(404).json({ message: "User not found" });
     }
 
-    if(user.resetPasswordCode !== resetPasswordCode || user.resetPasswordCodeExpiry < new Date()) {
+    if (user.resetPasswordCode !== resetPasswordCode || user.resetPasswordCodeExpiry < new Date()) {
         return res.status(400).json({ message: "Invalid or expired reset password code" });
     }
 
@@ -165,7 +205,7 @@ exports.resetPassword = async (req, res, next) => {
 };
 
 const generateUserAccessToken = (user) => {
-    return jwt.sign({ id: user._id, email: user.email }, process.env.JWT_TOKEN_SECRET, { expiresIn: process.env.TOKEN_EXPIRATION || '5m' });
+    return jwt.sign({ id: user.id, email: user.email }, process.env.JWT_TOKEN_SECRET, { expiresIn: process.env.TOKEN_EXPIRATION || '5m' });
 }
 
 const generateRefreshToken = () => {
@@ -174,9 +214,9 @@ const generateRefreshToken = () => {
 
 const generateRefreshTokenHash = (refreshToken) => {
     return crypto
-    .createHash("sha256")
-    .update(refreshToken)
-    .digest("hex");
+        .createHash("sha256")
+        .update(refreshToken)
+        .digest("hex");
 }
 
 const updateUserRefreshTokenHash = async (user, tokenHash) => {
@@ -188,7 +228,7 @@ const updateUserRefreshTokenHash = async (user, tokenHash) => {
 const clearUserRefreshTokenHash = async (user) => {
     user.refreshToken = '';
     user.refreshTokenExpiry = null;
-    await user.save();
+    await userService.updateUser(user);
 }
 
 const generateResetPasswordCode = () => {

@@ -12,8 +12,8 @@ async function getUserByRefreshToken(refreshToken) {
     });
 }
 
-async function addUser(data) {
-    return prisma.user.create({
+async function addUser(tx, data) {
+    return tx.user.create({
         data,
     });
 }
@@ -22,6 +22,7 @@ async function updateUser(user) {
     return prisma.user.update({
         where: { id: user.id },
         data: {
+            password: user.password,
             resetPasswordCode: user.resetPasswordCode,
             resetPasswordCodeExpiry: user.resetPasswordCodeExpiry,
             refreshToken: user.refreshToken,
