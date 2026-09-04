@@ -8,5 +8,6 @@ const { createAppointmentSchema } = require("../validations/createAppointmentVal
 router.get("/", appointmentController.get);
 router.post("/", validate(createAppointmentSchema), appointmentController.create);
 router.put("/:id", appointmentController.update);
+router.delete("/:id", appointmentController.delete);
 
 module.exports = router;

@@ -58,3 +58,21 @@ exports.update = async (req, res, next) => {
         next(error);
     }
 };
+
+exports.delete = async (req, res, next) => {
+    const appointmentId = parseInt(req.params.id, 10);
+
+    try {
+        const existingAppointment = await appointmentService.getAppointmentById(appointmentId);
+
+        if (!existingAppointment) {
+            throw new Error("Appointment not found");
+        }
+
+        await appointmentService.deleteAppointment(appointmentId);
+
+        res.status(200).json({ message: "Appointment deleted successfully" });
+    } catch (error) {
+        next(error);
+    }
+};  
