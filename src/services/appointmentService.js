@@ -42,8 +42,8 @@ async function getAppointments(query) {
         whereClause.patientId = parseInt(query.patientId, 10);
     }
 
-    if (query.date) {
-        whereClause.date = query.date;
+    if (query.appointmentDate) {
+        whereClause.date = new Date(query.appointmentDate);
     }
 
     if (query.status) {
@@ -56,7 +56,19 @@ async function getAppointments(query) {
         orderBy: {
             date: query.order === 'desc' ? 'desc' : 'asc',
         },
-        where: whereClause
+        where: whereClause,
+        include: {
+            doctor: {
+                include: {
+                    user: true,
+                },
+            },
+            patient: {
+                include: {
+                    user: true,
+                },
+            },
+        },
     });
 }
 

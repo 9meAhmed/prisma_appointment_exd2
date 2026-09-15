@@ -3,6 +3,18 @@ const { prisma } = require("../db/prisma");
 async function getUserByEmail(email) {
     return prisma.user.findUnique({
         where: { email },
+        include: {
+            doctor: {
+                include: {
+                    user: true,
+                },
+            },
+            patient: {
+                include: {
+                    user: true,
+                },
+            },
+        },
     });
 }
 

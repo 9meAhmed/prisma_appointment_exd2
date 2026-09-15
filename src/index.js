@@ -1,7 +1,7 @@
 const { connectDB, disconnectDB } = require("./db/prisma");
 const app = require("./app");
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 4000;
 
 async function start() {
   await connectDB();
